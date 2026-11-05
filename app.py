@@ -21,10 +21,13 @@ which combines the same model scores for the books a reader has rated or
 saved (see "personalisation" further down).
 """
 
+import difflib
+import itertools
 import os
 import re
 import pickle
 import secrets
+from collections import Counter
 from functools import wraps
 from urllib.parse import urlparse
 
@@ -122,6 +125,110 @@ def clean_text(t):
     t = str(t).lower()
     t = re.sub(r'[^a-z\s]', ' ', t)
     return ' '.join(w for w in t.split() if w not in STOP and len(w) > 2)
+
+
+# ---------------------------------------------------------------- spelling
+# How often each word appears across titles, authors and descriptions. A
+# misspelt query word is swapped for the most common word one or two edits
+# away (an edit is a deleted, inserted, changed or swapped letter), so
+# "liike", "harry poter" or "romantc comedy in new yrok" still find books.
+TITLES_LIST = TITLES_LOWER.tolist()
+WORD_COUNTS = Counter(re.findall(r'[a-z]{3,}', ' '.join(
+    TITLES_LIST + META['author'].astype(str).str.lower().tolist() +
+    META['description'].str.lower().tolist())))
+TRUSTED_WORDS = {w for w in VECTORIZER.vocabulary_ if ' ' not in w} | STOP
+_LETTERS = 'abcdefghijklmnopqrstuvwxyz'
+
+
+def _edits1(w):
+    splits = [(w[:i], w[i:]) for i in range(len(w) + 1)]
+    return ({a + b[1:] for a, b in splits if b} |
+            {a + b[1] + b[0] + b[2:] for a, b in splits if len(b) > 1} |
+            {a + c + b[1:] for a, b in splits if b for c in _LETTERS} |
+            {a + c + b for a, b in splits for c in _LETTERS})
+
+
+TITLE_WORD_COUNTS = Counter(re.findall(r'[a-z]{2,}', ' '.join(
+    TITLES_LIST + META['author'].astype(str).str.lower().tolist())))
+
+
+def _near_words(w, counts):
+    """Words in counts one edit from w, or two if none are one edit away."""
+    near = _edits1(w)
+    cands = [c for c in near if c in counts]
+    if not cands and len(w) <= 12:
+        cands = list({c for e in near for c in _edits1(e) if c in counts})
+    return cands
+
+
+def correct_title(text, per_word=3, max_tries=40):
+    """Title row for a misspelt title. Each unknown word gets its few most
+    common title-word spellings, and the first combination that appears in
+    a title wins, so "harry poter" -> "harry potter", not "harry power"."""
+    parts = re.split(r'([a-z]+)', text.lower())
+    options = []
+    for i, p in enumerate(parts):
+        if i % 2 and len(p) >= 3 and p not in TITLE_WORD_COUNTS:
+            c = sorted(_near_words(p, TITLE_WORD_COUNTS),
+                       key=lambda x: -TITLE_WORD_COUNTS[x])[:per_word]
+            options.append(c or [p])
+        else:
+            options.append([p])
+    if all(len(o) == 1 for o in options):
+        return None, None
+    combos = sorted(itertools.product(*[range(len(o)) for o in options]), key=sum)
+    for combo in combos[:max_tries]:
+        guess = ''.join(o[j] for o, j in zip(options, combo))
+        hit = best_title_containing(guess.strip())
+        if hit is not None:
+            return hit, guess.strip()
+    return None, None
+
+
+def correct_word(w):
+    """The most likely intended word for w, or w itself."""
+    if len(w) < 3 or w in TRUSTED_WORDS:
+        return w
+    seen = WORD_COUNTS.get(w, 0)
+    cands = _near_words(w, WORD_COUNTS)
+    if not cands:
+        return w
+    best = max(cands, key=lambda c: (c in TRUSTED_WORDS, WORD_COUNTS[c]))
+    # Rare words (names, places) are left alone unless the alternative is
+    # far more common, e.g. a typo that slipped into one description.
+    return best if WORD_COUNTS[best] >= max(3, 20 * seen) else w
+
+
+def correct_text(text):
+    """The query with each misspelt word corrected."""
+    return re.sub(r'[a-z]+', lambda m: correct_word(m.group(0)), text.lower())
+
+
+def best_title_containing(q):
+    """Row of the title that contains q nearest its start (shortest title on
+    a tie), so "lord of the rings" picks The Lord of the Rings rather than a
+    parody that mentions it in its subtitle. None when no title contains q."""
+    pos = TITLES_LOWER.str.find(q)
+    hits = pos[pos >= 0]
+    if hits.empty:
+        return None
+    return int(min(hits.index, key=lambda i: (hits[i], len(TITLES_LIST[i]))))
+
+
+def find_title(text):
+    """Catalogue row whose title matches the query exactly, contains it, or
+    (allowing for typos) is very close to it. None when nothing matches."""
+    q = text.lower()
+    exact = META.index[TITLES_LOWER == q]
+    if len(exact):
+        return int(exact[0])
+    partial = best_title_containing(q)
+    if partial is not None:
+        return partial
+    close = difflib.get_close_matches(q, TITLES_LIST, n=1, cutoff=0.85)
+    if close:
+        return TITLES_LIST.index(close[0])
+    return None
 
 
 # ---------------------------------------------------------------- scoring
@@ -624,6 +731,17 @@ def search():
         mask2 = TITLES_LOWER.str.contains(re.escape(q), na=False)
         extra = [i for i in META.index[mask2] if i not in set(hits)]
         hits += extra[:8 - len(hits)]
+    if not hits and len(q) >= 4:
+        # Probably a typo: suggest titles containing the corrected words,
+        # then titles that are close to what was typed.
+        _, fixed = correct_title(q)
+        if fixed:
+            mask3 = TITLES_LOWER.str.contains(re.escape(fixed), na=False)
+            hits = list(META.index[mask3][:8])
+        for t in difflib.get_close_matches(q, TITLES_LIST, n=8, cutoff=0.6):
+            i = TITLES_LIST.index(t)
+            if len(hits) < 8 and i not in hits:
+                hits.append(i)
     return jsonify([{'index': int(i),
                      'title': str(META.iloc[i]['title']),
                      'author': str(META.iloc[i]['author'])} for i in hits])
@@ -636,17 +754,18 @@ def recommend():
     text = request.args.get('title', '').strip()
 
     idx = None
+    corrected = None
     if raw is not None and raw.isdigit() and int(raw) < len(META):
         idx = int(raw)
     elif text:
-        exact = META.index[TITLES_LOWER == text.lower()]
-        if len(exact):
-            idx = int(exact[0])
-        else:
-            partial = META.index[TITLES_LOWER.str.contains(re.escape(text.lower()),
-                                                           na=False)]
-            if len(partial):
-                idx = int(partial[0])
+        idx = find_title(text)
+        if idx is None:
+            # Nothing matched as typed: first try it as a misspelt title,
+            # then fix the words and treat it as a description.
+            idx, corrected = correct_title(text)
+            if idx is None:
+                fixed = correct_text(text)
+                corrected = fixed if fixed != text.lower() else None
     else:
         return jsonify({'error': 'Enter a book title or a description to search.'}), 400
 
@@ -654,19 +773,23 @@ def recommend():
     # vectorised the same way the books were, and compared against them.
     free_text = idx is None
     query_genres = GENRE_SETS[idx] if idx is not None else set()
+    search_text = corrected or text
 
     results, notes = {}, {}
+    if corrected:
+        notes['_query'] = f'Showing results for "{corrected}" (you typed "{text}").'
     shown = dict(MODELS)
     if free_text and 'hybrid' in shown:
         # With no catalogue row there is no behavioural vector, so the hybrid
         # would just repeat its content half. Drop the column and say why.
         shown.pop('hybrid')
-        notes['_query'] = ('Collaborative filtering needs a book that readers have '
+        notes['_query'] = ((notes.get('_query', '') + ' ').lstrip() +
+                           'Collaborative filtering needs a book that readers have '
                            'borrowed. For a free-text search only the content '
                            'models can answer.')
 
     for key in shown:
-        scores, note = model_scores(key, idx=idx, text=text)
+        scores, note = model_scores(key, idx=idx, text=search_text)
         if scores is None:
             continue
         top = rank(scores, k, exclude=idx)
@@ -681,7 +804,7 @@ def recommend():
                                  f'or pick a title from the suggestions.'}), 404
 
     if free_text:
-        query = {'title': text, 'author': 'Free-text query', 'genres': [],
+        query = {'title': search_text, 'author': 'Free-text query', 'genres': [],
                  'blurb': 'Not a catalogue book - matched against book descriptions.',
                  'cover_url': '', 'isbn': '', 'publisher': '', 'year': '',
                  'index': -1, 'shared_genres': [], 'is_hit': False, 'score': None}
