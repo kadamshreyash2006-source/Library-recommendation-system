@@ -213,11 +213,11 @@ The repo includes `render.yaml`, so Render can set everything up from it.
 3. Render installs `requirements.txt`, starts the app with gunicorn, and gives
    you a `https://<name>.onrender.com` link.
 
-User accounts, ratings and saved books are kept in `/var/data/library.db` on a
-1 GB persistent disk, which needs Render's paid Starter instance. To use the free
-instance instead, change `plan: starter` to `plan: free` and delete the `disk:`
-block in `render.yaml`. The site works the same, but all accounts and ratings
-are wiped whenever Render restarts or sleeps the app.
+`render.yaml` uses Render's free instance. The free instance has no persistent
+disk, so user accounts, ratings and saved books (kept in `library.db`) are wiped
+whenever Render restarts, redeploys or wakes the app after it sleeps. To keep
+them, switch to the paid Starter instance and add a 1 GB disk at `/var/data`
+with `LIBRARY_DB=/var/data/library.db` (the comment in `render.yaml` shows how).
 
 The app uses about 230 MB of memory. SBERT free-text search is not installed on
 Render (it needs PyTorch, about 1 GB); typed descriptions use TF-IDF instead.

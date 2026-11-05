@@ -1,21 +1,25 @@
 # Render Blueprint for the Smart Library Recommender.
 # Render reads this file when you choose New > Blueprint and pick this repo.
+#
+# Runs on the free instance (512 MB RAM, sleeps after 15 min idle). The free
+# instance has no persistent disk, so library.db (accounts, ratings, saved
+# books) is wiped whenever Render restarts, redeploys or wakes the app.
+# For data that survives restarts, switch to `plan: starter`, set
+# LIBRARY_DB=/var/data/library.db and add:
+#    disk:
+#      name: library-data
+#      mountPath: /var/data
+#      sizeGB: 1
 services:
   - type: web
     name: smart-library-recommender
     runtime: python
-    plan: starter            # persistent disks need a paid instance (Starter)
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT
     healthCheckPath: /api/popular?k=1
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.7
-      - key: LIBRARY_DB
-        value: /var/data/library.db
       - key: SECRET_KEY
         generateValue: true
-    disk:
-      name: library-data
-      mountPath: /var/data
-      sizeGB: 1
