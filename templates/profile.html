@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'Welcome' if onboarding else 'Profile' }}{% endblock %}
+{% block content %}
+
+{% if onboarding %}
+<div class="page-head">
+  <div class="eyebrow">Welcome, {{ user['display_name'] }}</div>
+  <h1>Let’s learn your taste</h1>
+  <p>Two quick steps. Pick genres you enjoy, then rate a few books you have read. You can change all of this later.</p>
+</div>
+<div class="steps"><span class="on" id="st1">1 · Genres</span><span>→</span><span id="st2">2 · Rate a few books</span></div>
+{% else %}
+<div class="page-head">
+  <h1>{{ user['display_name'] }}</h1>
+  <p>@{{ user['username'] }} · member since {{ user['created_at'][:10] }}</p>
+</div>
+<div class="stats" id="stats"></div>
+{% endif %}
+
+<section class="section" id="step-genres">
+  <div class="section-head">
+    <h2>Favourite genres</h2>
+    <span class="sub">Books in these genres get a boost in your recommendations</span>
+  </div>
+  <div class="pick-chips" id="genres"></div>
+  {% if not onboarding %}
+  <div style="margin-top:18px"><button class="primary" id="save-genres">Save genres</button></div>
+  {% endif %}
+</section>
+
+{% if onboarding %}
+<section class="section" id="step-rate" hidden>
+  <div class="section-head">
+    <h2>Rate books you have read</h2>
+    <span class="sub">Popular books in your genres · skip any you have not read</span>
+  </div>
+  <div class="grid" id="rate-grid"></div>
+</section>
+<div class="sticky-bar">
+  <span class="muted" id="ob-status">Pick at least one genre, or skip.</span>
+  <div style="display:flex;gap:10px">
+    <a class="btn" href="/" id="skip">Skip</a>
+    <button class="primary" id="next">Next: rate books</button>
+  </div>
+</div>
+{% else %}
+<section class="section">
+  <div class="section-head">
+    <h2>Your taste, as the recommender sees it</h2>
+    <span class="sub">Strongest genre signals from your favourites, ratings and saved books</span>
+  </div>
+  <div id="taste" class="panel"></div>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ONBOARDING = {{ 'true' if onboarding else 'false' }};
+let picked = new Set(), rated = 0;
+
+function drawGenres(all){
+  document.getElementById('genres').innerHTML = all.map(g =>
+    `<button class="pick ${picked.has(g) ? 'on' : ''}" data-g="${esc(g)}">${esc(g)}</button>`).join('');
+}
+
+function drawProfile(p){
+  if (ONBOARDING) return;
+  const s = p.stats;
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><b>${s.rated}</b><span>books rated</span></div>
+    <div class="stat"><b>${s.saved}</b><span>books in library</span></div>
+    <div class="stat"><b>${s.avg_rating ?? '–'}</b><span>your average rating</span></div>
+    <div class="stat"><b>${s.shelves.read}</b><span>marked as read</span></div>`;
+  const t = document.getElementById('taste');
+  t.innerHTML = p.taste.length ? p.taste.map(x => `
+    <div class="taste-row"><span>${esc(x.genre)}</span><div class="tb"><i style="width:${Math.round(x.weight * 100)}%"></i></div></div>`).join('')
+    : '<p class="muted" style="margin:0">No signal yet. Pick some genres above, or rate a few books.</p>';
+}
+
+async function init(){
+  const [all, prefs] = await Promise.all([api('/api/genres'), api('/api/preferences')]);
+  picked = new Set(prefs.genres);
+  const extra = prefs.genres.filter(g => !all.includes(g));
+  drawGenres([...all, ...extra]);
+  drawProfile(prefs);
+  document.getElementById('genres').onclick = e => {
+    const b = e.target.closest('.pick');
+    if (!b) return;
+    const g = b.dataset.g;
+    picked.has(g) ? picked.delete(g) : picked.add(g);
+    b.classList.toggle('on');
+    if (ONBOARDING) obStatus();
+  };
+  if (ONBOARDING) obStatus();
+}
+
+async function saveGenres(){
+  return api('/api/preferences', {genres:[...picked]});
+}
+
+if (!ONBOARDING){
+  document.getElementById('save-genres').onclick = async () => {
+    const p = await saveGenres();
+    drawProfile(p);
+    toast('Genres saved. Your For you page is updated.');
+  };
+} else {
+  const next = document.getElementById('next');
+  window.obStatus = function(){
+    const st = document.getElementById('ob-status');
+    if (!document.getElementById('step-rate').hidden){
+      st.textContent = rated ? `${rated} rated — nice. Rate a few more, or finish.` : 'Rate any books you have read.';
+    } else {
+      st.textContent = picked.size ? `${picked.size} genre${picked.size > 1 ? 's' : ''} picked.` : 'Pick at least one genre, or skip.';
+    }
+  };
+  next.onclick = async () => {
+    if (!document.getElementById('step-rate').hidden){ location.href = '/'; return; }
+    await saveGenres();
+    document.getElementById('step-genres').hidden = true;
+    document.getElementById('step-rate').hidden = false;
+    document.getElementById('st1').classList.remove('on');
+    document.getElementById('st2').classList.add('on');
+    next.textContent = 'See my recommendations';
+    document.getElementById('skip').textContent = 'Skip';
+    obStatus();
+    window.scrollTo({top:0});
+    const grid = document.getElementById('rate-grid');
+    grid.innerHTML = skeletonGrid(12);
+    const gs = [...picked].slice(0, 4);
+    const lists = await Promise.all((gs.length ? gs : ['']).map(g =>
+      api('/api/popular?k=' + (gs.length > 1 ? 8 : 18) + '&genre=' + encodeURIComponent(g))));
+    const seen = new Set(), books = [];
+    // Interleave the genres so the first row is not all one genre.
+    for (let i = 0; i < 18; i++) for (const l of lists) {
+      const b = l[i];
+      if (b && !seen.has(b.index)){ seen.add(b.index); books.push(b); }
+    }
+    grid.innerHTML = books.slice(0, 24).map(b => tileHTML(b)).join('');
+  };
+  document.addEventListener('book-updated', e => {
+    if (e.detail.user_rating) rated++;
+    obStatus();
+  });
+}
+init();
+</script>
+{% endblock %}

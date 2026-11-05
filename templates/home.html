@@ -1,0 +1,128 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'For you' if user else 'Home' }}{% endblock %}
+{% block content %}
+
+{% if user %}
+  <div class="page-head">
+    <div class="eyebrow">Picked for {{ user['display_name'] }}</div>
+    <h1>Your next books</h1>
+    <p id="fy-sub">Built from the books you rate and save, and the genres you told us you like.</p>
+  </div>
+
+  <div id="fy-callout"></div>
+
+  <section class="section" style="margin-top:20px">
+    <div class="section-head">
+      <h2>Recommended for you</h2>
+      <span class="sub">Rate any book and this list re-ranks</span>
+    </div>
+    <div class="grid" id="fy-grid">{{ '' }}</div>
+  </section>
+
+  <div id="fy-shelves"></div>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>Browse by genre</h2>
+      <span class="sub">Most-read books in each genre</span>
+    </div>
+    <div class="pick-chips" id="genre-chips" style="margin-bottom:22px"></div>
+    <div class="grid" id="genre-grid"></div>
+  </section>
+
+{% else %}
+  <section class="hero">
+    <div>
+      <div class="eyebrow">{{ '{:,}'.format(book_count) }} books · three recommendation models</div>
+      <h1>Find the book you’ll <em>actually</em> want to read next.</h1>
+      <p>Rate what you’ve read, save what you want to read, and the recommender learns your taste —
+         blending what books are about with what readers like you borrowed together.</p>
+      <div class="ctas">
+        <a class="btn primary" href="{{ url_for('register') }}">Create a free account</a>
+        <a class="btn" href="{{ url_for('discover') }}">Try “find similar books”</a>
+      </div>
+    </div>
+    <div class="hero-stack" id="hero-stack"></div>
+  </section>
+
+  <div class="how">
+    <div><h3>Rate books</h3><p>One to five stars. Loves pull similar books up your list, misses push them down.</p></div>
+    <div><h3>Build your library</h3><p>Shelve books as Want to read, Reading or Read. Saved books shape your feed too.</p></div>
+    <div><h3>Get picks for you</h3><p>A hybrid of SBERT meaning-matching and collaborative filtering on 1.1M real interactions.</p></div>
+  </div>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>Popular with readers</h2>
+      <span class="sub">Sign in to rate and save</span>
+    </div>
+    <div class="pick-chips" id="genre-chips" style="margin-bottom:22px"></div>
+    <div class="grid" id="genre-grid"></div>
+  </section>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const genreGrid = document.getElementById('genre-grid');
+const genreChips = document.getElementById('genre-chips');
+
+async function loadGenre(genre){
+  genreChips.querySelectorAll('.pick').forEach(b => b.classList.toggle('on', b.dataset.g === genre));
+  genreGrid.innerHTML = skeletonGrid(6);
+  const books = await api('/api/popular?k=12&genre=' + encodeURIComponent(genre));
+  genreGrid.innerHTML = books.length ? books.map(b => tileHTML(b)).join('')
+    : '<p class="empty">Nothing new here — you have saved them all.</p>';
+}
+
+async function initGenres(preferred){
+  const all = await api('/api/genres');
+  const order = [...(preferred || []), ...all.filter(g => !(preferred || []).includes(g))].slice(0, 16);
+  genreChips.innerHTML = [''].concat(order).map(g =>
+    `<button class="pick" data-g="${esc(g)}">${g ? esc(g) : 'All genres'}</button>`).join('');
+  genreChips.onclick = e => { const b = e.target.closest('.pick'); if (b) loadGenre(b.dataset.g); };
+  loadGenre(preferred && preferred.length ? preferred[0] : '');
+}
+
+{% if user %}
+async function loadForYou(){
+  const grid = document.getElementById('fy-grid');
+  grid.innerHTML = skeletonGrid(12);
+  const d = await api('/api/foryou?k=18');
+  grid.innerHTML = d.books.map(b => tileHTML(b, {reason:true})).join('');
+
+  const call = document.getElementById('fy-callout');
+  if (!d.has_history){
+    call.innerHTML = `<div class="callout"><p>${d.fav_genres.length
+      ? 'These are popular picks in your favourite genres. <b>Rate or save a few books</b> and the list becomes personal.'
+      : 'Tell us which genres you like, or rate a few books, to turn this into a personal list.'}</p>
+      <a class="btn small primary" href="/welcome">${d.fav_genres.length ? 'Rate some books' : 'Pick genres'}</a></div>`;
+  } else {
+    call.innerHTML = '';
+    document.getElementById('fy-sub').textContent =
+      `Built from ${d.counts.rated} rated and ${d.counts.saved} saved book${d.counts.saved === 1 ? '' : 's'}` +
+      (d.fav_genres.length ? `, plus your favourite genres.` : '.');
+  }
+
+  document.getElementById('fy-shelves').innerHTML = d.shelves.map(s => `
+    <section class="section">
+      <div class="section-head">
+        <h2>Because you liked <a href="/book/${s.seed.index}" style="text-decoration:none;color:var(--brass)">${esc(s.seed.title)}</a></h2>
+        <a class="sub" href="/discover?index=${s.seed.index}">Compare all models →</a>
+      </div>
+      <div class="row-scroll">${s.books.map(b => tileHTML(b)).join('')}</div>
+    </section>`).join('');
+  return d;
+}
+loadForYou().then(d => initGenres(d.fav_genres)).catch(e => toast(e.message));
+{% else %}
+initGenres([]);
+api('/api/popular?k=3').then(bs => {
+  const st = document.getElementById('hero-stack');
+  const pos = [['10%','30px','-6deg'],['38%','0','3deg'],['64%','40px','9deg']];
+  st.innerHTML = bs.map((b, i) => `<a href="/book/${b.index}" style="position:absolute;width:150px;left:${pos[i][0]};top:${pos[i][1]};transform:rotate(${pos[i][2]})">${coverHTML(b,'md')}</a>`).join('');
+});
+{% endif %}
+</script>
+{% endblock %}

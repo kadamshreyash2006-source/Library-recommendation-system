@@ -1,0 +1,142 @@
+{% extends 'base.html' %}
+{% block title %}Discover{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Find similar books</h1>
+  <p>Enter a book you liked — or describe what you feel like reading — and compare what each model recommends.</p>
+</div>
+
+<div class="search-block">
+  <div class="search-row">
+    <div class="field">
+      <input type="text" id="q" autocomplete="off" spellcheck="false"
+             placeholder="A book you liked, or what you feel like reading&hellip;" aria-label="Book title">
+      <div class="suggest" id="suggest"></div>
+    </div>
+    <button class="primary" id="go">Find similar books</button>
+    <button id="rand">Surprise me</button>
+  </div>
+  {% if not user %}
+  <p class="muted" style="font-size:13.5px;margin:14px 0 0"><a href="{{ url_for('login', next='/discover') }}" style="color:var(--brass)">Sign in</a> to rate and save results.</p>
+  {% endif %}
+</div>
+
+<div id="out">
+  <p class="empty">Start with a book you already enjoyed. The recommender finds others like it.</p>
+</div>
+
+<p class="footnote">
+  The content models read book descriptions; the hybrid also uses which books the same
+  readers borrowed together. A highlighted genre means the book shares that tag with your
+  query; two or more shared tags counts as a hit in the project&rsquo;s evaluation.
+  {% if user %}Your ratings and saved books shape the <a href="{{ url_for('home') }}" style="color:var(--brass)">For you</a> page;
+  the results here are the models' own output.{% endif %}
+</p>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const qEl = document.getElementById('q');
+const outEl = document.getElementById('out');
+let chosen = null, lastParams = null;
+
+function cardHTML(b){
+  const chips = b.genres.map(g =>
+    `<span class="chip ${b.shared_genres.includes(g) ? 'shared' : ''}">${esc(g)}</span>`).join('');
+  const pct = Math.max(2, Math.round(b.score * 100));
+  const tags = [];
+  if (b.is_hit) tags.push('<span class="hit">genre match</span>');
+  return `<div class="card">
+    <a href="/book/${b.index}">${coverHTML(b,'sm')}</a>
+    <div class="info">
+      <p class="t"><a href="/book/${b.index}">${esc(b.title)}</a></p>
+      <div class="a">${esc(b.author)}</div>
+      <div class="chips">${chips}</div>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="score"><span>similarity ${b.score.toFixed(3)}</span><span>${tags.join(' · ')}</span></div>
+      <div class="controls">${starsHTML(b)}${shelfHTML(b)}</div>
+    </div></div>`;
+}
+
+function render(data){
+  const q = data.query;
+  const chips = q.genres.map(g => `<span class="chip">${esc(g)}</span>`).join('');
+  const qCover = data.free_text ? '' : `<a href="/book/${q.index}">${coverHTML(q,'lg')}</a>`;
+  const qnote = (data.notes && data.notes._query)
+    ? `<p class="blurb" style="color:#D9A441">${esc(data.notes._query)}</p>` : '';
+  const title = data.free_text ? esc(q.title) : `<a href="/book/${q.index}">${esc(q.title)}</a>`;
+  const qActions = data.free_text ? '' :
+    `<div class="q-actions">${starsHTML(q)}${shelfHTML(q)}</div>`;
+  let html = `<div class="query">${qCover}
+    <div class="meta">
+      <h2>${title}</h2>
+      <div class="byline">${esc(q.author)}${q.publisher && q.publisher !== 'nan' ? ' &middot; ' + esc(q.publisher) : ''}</div>
+      <div class="chips">${chips}</div>
+      <p class="blurb">${esc(q.blurb)}</p>
+      ${qnote}${qActions}
+    </div></div><div class="cols">`;
+
+  const subs = {
+    hybrid: 'Book descriptions fused with what readers borrowed together',
+    sbert: 'Matches on meaning, using sentence embeddings',
+    tfidf: 'Matches on shared words, using term frequencies'
+  };
+  const order = ['hybrid','sbert','tfidf'].filter(k => data.results[k]);
+  for (const key of order){
+    const rows = data.results[key];
+    const note = (data.notes && data.notes[key])
+      ? `<div class="note">${esc(data.notes[key])}</div>` : '';
+    html += `<div class="col ${key}">
+      <h3>${esc(data.models[key])}</h3>
+      <div class="sub">${subs[key] || ''}</div>
+      <div class="col-rule"></div>
+      ${note}
+      ${rows.map(cardHTML).join('')}
+    </div>`;
+  }
+  outEl.innerHTML = html + '</div>';
+}
+
+async function recommend(params){
+  lastParams = params;
+  outEl.innerHTML = '<p class="empty">Looking through the shelves&hellip;</p>';
+  try{
+    const r = await fetch('/api/recommend?' + params);
+    const d = await r.json();
+    if (!r.ok){ outEl.innerHTML = `<div class="msg">${esc(d.error || 'Something went wrong.')}</div>`; return; }
+    render(d);
+    if (!d.free_text && !qEl.value) qEl.value = d.query.title;
+    history.replaceState(null, '', '/discover?' + params);
+  }catch(e){
+    outEl.innerHTML = '<div class="msg">Could not reach the server. Is app.py still running?</div>';
+  }
+}
+
+function submit(){
+  if (chosen !== null) recommend('index=' + chosen);
+  else if (qEl.value.trim()) recommend('title=' + encodeURIComponent(qEl.value.trim()));
+}
+
+attachSuggest(qEl, document.getElementById('suggest'),
+  s => { qEl.value = s.title; chosen = s.index; recommend('index=' + s.index); },
+  () => submit());
+qEl.addEventListener('input', () => { chosen = null; });
+
+document.getElementById('go').onclick = submit;
+document.getElementById('rand').onclick = async () => {
+  const b = await api('/api/random');
+  qEl.value = b.title; chosen = b.index;
+  recommend('index=' + b.index);
+};
+
+// Deep links: /discover?index=123 or /discover?q=dragons
+const sp = new URLSearchParams(location.search);
+if (sp.get('index')){
+  chosen = parseInt(sp.get('index'), 10);
+  recommend('index=' + chosen);
+} else if (sp.get('q') || sp.get('title')){
+  qEl.value = sp.get('q') || sp.get('title');
+  submit();
+}
+</script>
+{% endblock %}

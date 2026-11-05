@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Smart Library{% endblock %} · Smart Library Recommender</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,600;1,400&family=Archivo:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%230E2029'/%3E%3Cpath d='M9 7h4v18H9zM15 7h4v18h-4zM21 9l3.5-1 4 16.5-3.5 1z' fill='%23D9A441'/%3E%3C/svg%3E">
+</head>
+<body data-authed="{{ '1' if user else '0' }}" data-shelves='{{ shelves.items()|list|tojson }}'>
+{% set page = request.endpoint %}
+<nav class="nav">
+  <div class="wrap nav-row">
+    <a class="brand" href="{{ url_for('home') }}">Smart Library <span class="mark">Recommender</span></a>
+    <div class="nav-search">
+      <input id="nav-q" type="text" placeholder="Search {{ '{:,}'.format(book_count) }} books…" autocomplete="off" aria-label="Search books">
+      <div class="suggest" id="nav-suggest"></div>
+    </div>
+    <button class="menu-toggle" id="menu-toggle" aria-label="Menu">☰</button>
+    <div class="nav-links" id="nav-links">
+      <a href="{{ url_for('home') }}" class="{{ 'active' if page == 'home' }}">{{ 'For you' if user else 'Home' }}</a>
+      <a href="{{ url_for('discover') }}" class="{{ 'active' if page == 'discover' }}">Discover</a>
+      {% if user %}
+        <a href="{{ url_for('library_page') }}" class="{{ 'active' if page == 'library_page' }}">My library</a>
+        <a href="{{ url_for('profile_page') }}" class="{{ 'active' if page in ('profile_page', 'welcome') }}" title="Profile and preferences">
+          <span class="avatar">{{ user['display_name'][:1]|upper }}</span></a>
+        <form method="post" action="{{ url_for('logout') }}">
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+          <button class="linkish" type="submit">Sign out</button>
+        </form>
+      {% else %}
+        <a href="{{ url_for('login') }}" class="{{ 'active' if page == 'login' }}">Sign in</a>
+        <a href="{{ url_for('register') }}" class="join">Join free</a>
+      {% endif %}
+    </div>
+  </div>
+</nav>
+
+<main class="wrap">
+{% block content %}{% endblock %}
+</main>
+
+<footer>
+  <div class="wrap">Smart Library Recommender · {{ '{:,}'.format(book_count) }} books · models: {{ models.values()|join(', ') }}</div>
+</footer>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

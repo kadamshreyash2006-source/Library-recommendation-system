@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+library.db
+.secret_key
+.venv/
+venv/

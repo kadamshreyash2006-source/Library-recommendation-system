@@ -1,0 +1,21 @@
+# Render Blueprint for the Smart Library Recommender.
+# Render reads this file when you choose New > Blueprint and pick this repo.
+services:
+  - type: web
+    name: smart-library-recommender
+    runtime: python
+    plan: starter            # persistent disks need a paid instance (Starter)
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT
+    healthCheckPath: /api/popular?k=1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: LIBRARY_DB
+        value: /var/data/library.db
+      - key: SECRET_KEY
+        generateValue: true
+    disk:
+      name: library-data
+      mountPath: /var/data
+      sizeGB: 1

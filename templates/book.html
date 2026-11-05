@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% block title %}{{ book.title }}{% endblock %}
+{% block content %}
+<div class="book-hero">
+  <div id="cover-slot"></div>
+  <div>
+    <div class="eyebrow">{{ book.genres[:2]|join(' · ') or 'Book' }}</div>
+    <h1>{{ book.title }}</h1>
+    <div class="byline">by {{ book.author }}{% if book.year and book.year not in ('0', 'nan') %} · {{ book.year }}{% endif %}{% if book.publisher and book.publisher != 'nan' %} · {{ book.publisher }}{% endif %}</div>
+    <div class="chips">{% for gname in book.genres %}<span class="chip">{{ gname }}</span>{% endfor %}</div>
+
+    <div class="facts">
+      {% if book.readers %}<div><b>{{ '{:,}'.format(book.readers) }}</b>Book-Crossing readers</div>{% endif %}
+      {% if book.avg %}<div><b>{{ book.avg }} / 5</b>average reader rating</div>{% endif %}
+      <div><b>{{ book.isbn }}</b>ISBN</div>
+    </div>
+
+    <div class="your-box">
+      <div><span class="lbl">Your rating</span><span id="stars-slot"></span></div>
+      <div><span class="lbl">Your library</span><span id="shelf-slot"></span></div>
+      <div style="margin-left:auto"><a class="btn small" href="{{ url_for('discover', index=book.index) }}">Compare models →</a></div>
+    </div>
+
+    <p class="desc clamp" id="desc">{{ book.description }}</p>
+    <button class="small" id="more" hidden>Read more</button>
+  </div>
+</div>
+
+<section class="section">
+  <div class="section-head">
+    <h2>If you like this, try</h2>
+    <span class="sub" id="sim-sub">Similar books</span>
+  </div>
+  <div class="grid" id="sim"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const BOOK = {{ book|tojson }};
+document.getElementById('cover-slot').innerHTML = coverHTML(BOOK, 'xl');
+document.getElementById('stars-slot').innerHTML = starsHTML(BOOK, true) + '<span class="stars-label" id="sl"></span>';
+document.getElementById('shelf-slot').innerHTML = shelfHTML(BOOK, true);
+
+function label(b){
+  const el = document.getElementById('sl');
+  if (el) el.textContent = b.user_rating ? '' : (LIB.authed ? 'Not rated yet' : 'Sign in to rate');
+}
+label(BOOK);
+document.addEventListener('book-updated', e => {
+  if (e.detail.index === BOOK.index){
+    const s = document.getElementById('stars-slot');
+    if (!s.querySelector('#sl')) s.insertAdjacentHTML('beforeend', '<span class="stars-label" id="sl"></span>');
+    label(e.detail);
+  }
+});
+
+const desc = document.getElementById('desc'), more = document.getElementById('more');
+if (desc.scrollHeight > desc.clientHeight + 4){
+  more.hidden = false;
+  more.onclick = () => { desc.classList.toggle('clamp'); more.textContent = desc.classList.contains('clamp') ? 'Read more' : 'Show less'; };
+}
+
+const sim = document.getElementById('sim');
+sim.innerHTML = skeletonGrid(6);
+api('/api/recommend?k=12&index=' + BOOK.index).then(d => {
+  const key = ['hybrid','sbert','tfidf'].find(k => d.results[k]);
+  sim.innerHTML = d.results[key].map(b => tileHTML(b)).join('');
+  document.getElementById('sim-sub').textContent =
+    d.models[key] + ' model';
+}).catch(e => { sim.innerHTML = `<div class="msg">${esc(e.message)}</div>`; });
+</script>
+{% endblock %}

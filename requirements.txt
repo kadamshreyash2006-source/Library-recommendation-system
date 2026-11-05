@@ -1,0 +1,10 @@
+flask>=3.0
+pandas>=2.0
+numpy>=1.24
+scipy>=1.10
+scikit-learn>=1.8
+gunicorn>=22.0
+
+# Optional - enables SBERT for free-text searches. Not used on Render:
+# it adds about 1 GB (PyTorch) and the free-text search falls back to TF-IDF.
+# sentence-transformers>=3.0

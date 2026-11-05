@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Library Recommender</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,600;1,400&family=Archivo:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0E2029;
+    --surface:#16313D;
+    --surface-2:#1E4454;
+    --line:#2A5566;
+    --brass:#D9A441;
+    --patina:#5FBFB0;
+    --violet:#A98BD6;
+    --text:#E6EDF0;
+    --muted:#8AA3AF;
+    --radius:3px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--ink);
+    color:var(--text);
+    font-family:'Archivo',system-ui,sans-serif;
+    font-size:15px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1140px;margin:0 auto;padding:0 24px}
+
+  /* ---------- header ---------- */
+  header{border-bottom:1px solid var(--line);padding:26px 0 18px;margin-bottom:34px}
+  .head-row{display:flex;align-items:baseline;justify-content:space-between;gap:20px;flex-wrap:wrap}
+  h1{
+    font-family:'Spectral',Georgia,serif;
+    font-weight:600;font-size:27px;margin:0;letter-spacing:-.01em;
+  }
+  h1 .mark{color:var(--brass)}
+  .count{color:var(--muted);font-size:13px}
+
+  /* ---------- search ---------- */
+  .search-block{margin-bottom:38px}
+  .search-row{display:flex;gap:10px;flex-wrap:wrap}
+  .field{position:relative;flex:1 1 420px;min-width:260px}
+  input[type=text]{
+    width:100%;padding:15px 17px;
+    background:var(--surface);color:var(--text);
+    border:1px solid var(--line);border-radius:var(--radius);
+    font-family:'Spectral',Georgia,serif;font-size:18px;
+  }
+  input[type=text]::placeholder{color:var(--muted);font-style:italic}
+  input[type=text]:focus{outline:2px solid var(--brass);outline-offset:1px;border-color:transparent}
+  button{
+    padding:15px 22px;border-radius:var(--radius);border:1px solid var(--line);
+    background:var(--surface);color:var(--text);
+    font-family:'Archivo',sans-serif;font-size:14px;font-weight:500;cursor:pointer;
+  }
+  button.primary{background:var(--brass);color:#16202a;border-color:var(--brass);font-weight:600}
+  button:hover{border-color:var(--brass)}
+  button:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+
+  .suggest{
+    position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:30;
+    background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);
+    max-height:310px;overflow:auto;display:none;
+  }
+  .suggest.open{display:block}
+  .sug{padding:10px 15px;cursor:pointer;border-bottom:1px solid var(--line)}
+  .sug:last-child{border-bottom:0}
+  .sug:hover,.sug.active{background:var(--brass);color:#16202a}
+  .sug .t{font-family:'Spectral',Georgia,serif;font-size:15px}
+  .sug .a{font-size:12px;color:var(--muted)}
+  .sug:hover .a,.sug.active .a{color:#3a3020}
+
+  /* ---------- query panel ---------- */
+  .query{
+    display:flex;gap:22px;padding:22px;margin-bottom:34px;
+    background:var(--surface);border-left:3px solid var(--brass);border-radius:var(--radius);
+  }
+  .query .meta h2{
+    font-family:'Spectral',Georgia,serif;font-weight:600;font-size:22px;
+    margin:0 0 4px;line-height:1.25;
+  }
+  .query .byline{color:var(--muted);font-size:14px;margin-bottom:12px}
+  .query .blurb{font-size:14px;color:#C6D5DC;max-width:62ch;margin-top:10px}
+
+  /* ---------- covers ---------- */
+  .cover{
+    flex:none;border-radius:2px;background:var(--surface-2);
+    object-fit:cover;display:block;
+  }
+  .cover-lg{width:104px;height:156px}
+  .cover-sm{width:54px;height:81px}
+  .ph{
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Spectral',Georgia,serif;color:var(--muted);
+    border:1px solid var(--line);text-align:center;padding:4px;
+    line-height:1.1;overflow:hidden;
+  }
+  .ph-lg{font-size:12px}
+  .ph-sm{font-size:9px}
+
+  /* ---------- results ---------- */
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:26px}
+  .col h3{
+    font-family:'Archivo',sans-serif;font-size:13px;font-weight:600;
+    margin:0 0 3px;letter-spacing:.02em;
+  }
+  .col.tfidf h3{color:var(--brass)}
+  .col.sbert h3{color:var(--patina)}
+  .col.hybrid h3{color:var(--violet)}
+  .col .sub{color:var(--muted);font-size:12px;margin-bottom:14px}
+  .col .note{
+    font-size:11.5px;color:var(--brass);background:rgba(217,164,65,.12);
+    padding:6px 9px;border-radius:2px;margin-bottom:12px;
+  }
+  .col-rule{height:2px;margin-bottom:16px}
+  .col.tfidf .col-rule{background:var(--brass)}
+  .col.sbert .col-rule{background:var(--patina)}
+  .col.hybrid .col-rule{background:var(--violet)}
+
+  .card{display:flex;gap:13px;padding:13px 0;border-bottom:1px solid var(--line)}
+  .card:last-child{border-bottom:0}
+  .card .info{min-width:0;flex:1}
+  .card .t{
+    font-family:'Spectral',Georgia,serif;font-size:15px;line-height:1.3;
+    margin:0 0 2px;
+  }
+  .card .a{color:var(--muted);font-size:12.5px;margin-bottom:7px}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+  .chip{
+    font-size:10.5px;padding:2px 7px;border-radius:2px;
+    background:var(--surface-2);color:var(--muted);
+  }
+  .chip.shared{background:rgba(217,164,65,.18);color:var(--brass)}
+  .col.sbert .chip.shared{background:rgba(95,191,176,.18);color:var(--patina)}
+  .col.hybrid .chip.shared{background:rgba(169,139,214,.18);color:var(--violet)}
+  .bar{height:3px;background:var(--surface-2);border-radius:2px;overflow:hidden;margin-bottom:4px}
+  .bar i{display:block;height:100%}
+  .tfidf .bar i{background:var(--brass)}
+  .sbert .bar i{background:var(--patina)}
+  .hybrid .bar i{background:var(--violet)}
+  .score{font-size:11px;color:var(--muted);display:flex;justify-content:space-between}
+  .hit{color:var(--brass);font-weight:600}
+  .sbert .hit{color:var(--patina)}
+  .hybrid .hit{color:var(--violet)}
+
+  .note{color:var(--muted);font-size:13px;margin-top:30px;padding-top:16px;border-top:1px solid var(--line)}
+  .msg{padding:15px;background:var(--surface);border-left:3px solid var(--brass);border-radius:var(--radius)}
+  .empty{color:var(--muted);font-family:'Spectral',Georgia,serif;font-style:italic;font-size:17px;padding:34px 0}
+
+  @media (prefers-reduced-motion:no-preference){
+    .card{animation:rise .28s ease both}
+    @keyframes rise{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+  }
+  @media(max-width:620px){
+    .query{flex-direction:column}
+    .cover-lg{width:84px;height:126px}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap head-row">
+    <h1>Smart Library <span class="mark">Recommender</span></h1>
+    <div class="count">{{ "{:,}".format(book_count) }} books indexed</div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="search-block">
+    <div class="search-row">
+      <div class="field">
+        <input type="text" id="q" autocomplete="off" spellcheck="false"
+               placeholder="A book you liked, or what you feel like reading&hellip;" aria-label="Book title">
+        <div class="suggest" id="suggest"></div>
+      </div>
+      <button class="primary" id="go">Find similar books</button>
+      <button id="rand">Surprise me</button>
+    </div>
+  </div>
+
+  <div id="out">
+    <p class="empty">Start with a book you already enjoyed. The recommender finds others like it.</p>
+  </div>
+
+  <p class="note">
+    The content models read book descriptions; the hybrid also uses which books the same
+    readers borrowed together. A highlighted genre means the book shares that tag with your
+    query; two or more shared tags counts as a hit in the project&rsquo;s evaluation.
+  </p>
+</main>
+
+<script>
+const qEl = document.getElementById('q');
+const sugEl = document.getElementById('suggest');
+const outEl = document.getElementById('out');
+let chosen = null, sugItems = [], active = -1, timer = null;
+
+function esc(s){
+  return String(s).replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// Cover loading: publisher URL, then Open Library by ISBN, then initials.
+function coverHTML(b, size){
+  const cls = size === 'lg' ? 'cover-lg' : 'cover-sm';
+  const phc = size === 'lg' ? 'ph-lg' : 'ph-sm';
+  // Open Library first (https, actively maintained); the publisher URLs in
+  // Books.csv are old Amazon paths and many no longer resolve.
+  const srcs = [];
+  if (b.isbn) srcs.push('https://covers.openlibrary.org/b/isbn/' + encodeURIComponent(b.isbn) + '-M.jpg?default=false');
+  if (b.cover_url) srcs.push(b.cover_url);
+  const short = esc(b.title).split(/\s+/).slice(0,4).join(' ');
+  if (!srcs.length) return `<div class="cover ${cls} ph ${phc}">${short}</div>`;
+  const chain = esc(JSON.stringify(srcs));
+  return `<img class="cover ${cls}" src="${esc(srcs[0])}" alt="" loading="lazy"
+    data-srcs='${chain}' data-i="0" data-short="${short}"
+    onerror="nextCover(this)">`;
+}
+
+function nextCover(img){
+  let list = [];
+  try { list = JSON.parse(img.dataset.srcs); } catch(e){ list = []; }
+  let i = parseInt(img.dataset.i || '0', 10) + 1;
+  if (i < list.length){ img.dataset.i = i; img.src = list[i]; return; }
+  const ph = document.createElement('div');
+  ph.className = img.className + ' ph ' + (img.classList.contains('cover-lg') ? 'ph-lg' : 'ph-sm');
+  ph.textContent = img.dataset.short || '';
+  img.replaceWith(ph);
+}
+window.nextCover = nextCover;
+
+function cardHTML(b, kind){
+  const chips = b.genres.map(g =>
+    `<span class="chip ${b.shared_genres.includes(g) ? 'shared' : ''}">${esc(g)}</span>`).join('');
+  const pct = Math.max(2, Math.round(b.score * 100));
+  return `<div class="card">
+    ${coverHTML(b,'sm')}
+    <div class="info">
+      <p class="t">${esc(b.title)}</p>
+      <div class="a">${esc(b.author)}</div>
+      <div class="chips">${chips}</div>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="score"><span>similarity ${b.score.toFixed(3)}</span>
+        ${b.is_hit ? '<span class="hit">genre match</span>' : '<span></span>'}</div>
+    </div></div>`;
+}
+
+function render(data){
+  const q = data.query;
+  const chips = q.genres.map(g => `<span class="chip">${esc(g)}</span>`).join('');
+  const qCover = data.free_text ? '' : coverHTML(q,'lg');
+  const qnote = (data.notes && data.notes._query)
+    ? `<p class="blurb" style="color:#D9A441">${esc(data.notes._query)}</p>` : '';
+  let html = `<div class="query">${qCover}
+    <div class="meta">
+      <h2>${esc(q.title)}</h2>
+      <div class="byline">${esc(q.author)}${q.publisher && q.publisher !== 'nan' ? ' &middot; ' + esc(q.publisher) : ''}</div>
+      <div class="chips">${chips}</div>
+      <p class="blurb">${esc(q.blurb)}</p>
+      ${qnote}
+    </div></div><div class="cols">`;
+
+  const subs = {
+    hybrid: 'Book descriptions fused with what readers borrowed together',
+    sbert: 'Matches on meaning, using sentence embeddings',
+    tfidf: 'Matches on shared words, using term frequencies'
+  };
+  const order = ['hybrid','sbert','tfidf'].filter(k => data.results[k]);
+  for (const key of order){
+    const rows = data.results[key];
+    const note = (data.notes && data.notes[key])
+      ? `<div class="note">${esc(data.notes[key])}</div>` : '';
+    html += `<div class="col ${key}">
+      <h3>${esc(data.models[key])}</h3>
+      <div class="sub">${subs[key] || ''}</div>
+      <div class="col-rule"></div>
+      ${note}
+      ${rows.map(b => cardHTML(b, key)).join('')}
+    </div>`;
+  }
+  outEl.innerHTML = html + '</div>';
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+async function recommend(params){
+  outEl.innerHTML = '<p class="empty">Looking through the shelves&hellip;</p>';
+  try{
+    const r = await fetch('/api/recommend?' + params);
+    const d = await r.json();
+    if (!r.ok){ outEl.innerHTML = `<div class="msg">${esc(d.error || 'Something went wrong.')}</div>`; return; }
+    render(d);
+  }catch(e){
+    outEl.innerHTML = '<div class="msg">Could not reach the server. Is app.py still running?</div>';
+  }
+}
+
+function submit(){
+  closeSuggest();
+  if (chosen !== null) recommend('index=' + chosen);
+  else if (qEl.value.trim()) recommend('title=' + encodeURIComponent(qEl.value.trim()));
+}
+
+
+function closeSuggest(){ sugEl.classList.remove('open'); active = -1; }
+
+function showSuggest(items){
+  sugItems = items;
+  if (!items.length){ closeSuggest(); return; }
+  sugEl.innerHTML = items.map((s,i) =>
+    `<div class="sug" data-i="${i}"><div class="t">${esc(s.title)}</div><div class="a">${esc(s.author)}</div></div>`
+  ).join('');
+  sugEl.classList.add('open');
+  sugEl.querySelectorAll('.sug').forEach(el => {
+    el.onclick = () => pick(parseInt(el.dataset.i,10));
+  });
+}
+
+function pick(i){
+  const s = sugItems[i];
+  if (!s) return;
+  qEl.value = s.title;
+  chosen = s.index;
+  closeSuggest();
+  recommend('index=' + s.index);
+}
+
+qEl.addEventListener('input', () => {
+  chosen = null;
+  clearTimeout(timer);
+  const v = qEl.value.trim();
+  if (v.length < 2){ closeSuggest(); return; }
+  timer = setTimeout(async () => {
+    try{
+      const r = await fetch('/api/search?q=' + encodeURIComponent(v));
+      showSuggest(await r.json());
+    }catch(e){ closeSuggest(); }
+  }, 180);
+});
+
+qEl.addEventListener('keydown', e => {
+  if (!sugEl.classList.contains('open')){
+    if (e.key === 'Enter') submit();
+    return;
+  }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+    e.preventDefault();
+    active += (e.key === 'ArrowDown' ? 1 : -1);
+    if (active < 0) active = sugItems.length - 1;
+    if (active >= sugItems.length) active = 0;
+    sugEl.querySelectorAll('.sug').forEach((el,i) => el.classList.toggle('active', i === active));
+  } else if (e.key === 'Enter'){
+    e.preventDefault();
+    if (active >= 0) pick(active); else submit();
+  } else if (e.key === 'Escape'){ closeSuggest(); }
+});
+
+document.addEventListener('click', e => {
+  if (!sugEl.contains(e.target) && e.target !== qEl) closeSuggest();
+});
+
+document.getElementById('go').onclick = submit;
+document.getElementById('rand').onclick = async () => {
+  const r = await fetch('/api/random');
+  const b = await r.json();
+  qEl.value = b.title;
+  chosen = b.index;
+  recommend('index=' + b.index);
+};
+</script>
+</body>
+</html>
